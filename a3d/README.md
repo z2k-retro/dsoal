@@ -17,7 +17,7 @@ Put these next to the game's `.exe`:
 
 - `dsound.dll` (DSOAL) and `dsoal-aldrv.dll` (OpenAL Soft)
 - `a3d.dll`, `a3dapi.dll`
-- `Aureal Vortex 2.mhr`, built from your own driver files (see "HRTF data" below)
+- `Aureal Vortex 2.mhr` (from `hrtf/`)
 - optionally `alsoft.ini` (copy of `alsoft.ini.sample`) and `a3d.ini` (copy of `a3d.ini.sample`)
 
 ## Speaker mode
@@ -113,14 +113,15 @@ OpenAL Soft's wave-file writer:
 
 ## HRTF data
 
-Nothing derived from Aureal's HRTF data is kept here. The direction filters the
-Vortex 2 driver loads are Aureal's "Ed's Ears" profile,
-`Ed_Riegelsberger1.hrtf`, which comes with the Vortex 2 driver packages.
-`hrtf/make_mhr.py` turns it into the OpenAL Soft data set:
+`hrtf/Aureal Vortex 2.mhr` is the OpenAL Soft data set the DLLs use. It is
+made from the direction filters the Vortex 2 driver loads into the card:
+Aureal's "Ed's Ears" profile (`Ed_Riegelsberger1.hrtf`, measured by Ed
+Riegelsberger), which comes with the Vortex 2 driver packages. It covers
+elevations from −75° to +75° on a 15° grid plus straight up and straight down,
+56 taps per ear at 48 kHz, with the card's inter-aural delays; filters
+captured from a real SQ2500 match it to within ±2 units.
+
+`hrtf/make_mhr.py` rebuilds it from the profile file (or from a .csv of a
+captured table):
 
     python3 make_mhr.py Ed_Riegelsberger1.hrtf "Aureal Vortex 2.mhr"
-
-The profile covers elevations from −75° to +75° on a 15° grid plus straight
-up and straight down, with the card's inter-aural delays; filters captured from
-a real SQ2500 match it to within ±2 units. (`make_mhr.py` also still accepts a
-.csv of a captured table.)

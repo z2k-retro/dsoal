@@ -1,8 +1,8 @@
 """Build an OpenAL Soft HRTF data set (MinPHR03) for the A3D DLLs from
 Aureal's own HRTF profile file, "Ed's Ears" (Ed_Riegelsberger1.hrtf), which
 ships with the Vortex 2 drivers and is the direction table the 4.06.2048
-driver loads into the card. No HRTF data is kept in this repository: point
-this at the file from your own driver package.
+driver loads into the card. The result, "Aureal Vortex 2.mhr", is kept
+alongside this script.
 
     python3 make_mhr.py Ed_Riegelsberger1.hrtf "Aureal Vortex 2.mhr"
 

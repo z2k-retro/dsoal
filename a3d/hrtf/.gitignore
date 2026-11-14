@@ -1,4 +1,3 @@
-# HRTF data is built locally from the driver's own .hrtf file and is not redistributed.
-*.mhr
+# The captured table and Aureal's original profile files are not kept here.
 *.csv
 *.hrtf

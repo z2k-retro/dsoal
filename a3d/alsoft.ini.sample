@@ -1,0 +1,10 @@
+# OpenAL Soft settings for A3D games: put this next to the game's .exe as
+# alsoft.ini, together with "Aureal Vortex 2.mhr".
+[general]
+# Headphone rendering with the Vortex 2 direction filters.
+stereo-mode = headphones
+hrtf = true
+default-hrtf = Aureal Vortex 2
+hrtf-paths = .
+# The Vortex 2 ran at 48 kHz; the HRTF set is 48 kHz too.
+frequency = 48000

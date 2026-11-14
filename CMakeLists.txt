@@ -269,3 +269,9 @@ set(CPACK_STRIP_FILES TRUE)
 set(CPACK_OUTPUT_FILE_PREFIX packages)
 
 include(CPack)
+
+# Aureal A3D emulation (a3d.dll, a3dapi.dll), Windows only.
+option(DSOAL_BUILD_A3D "Build the A3D 1.x/2.0 emulation DLLs" ON)
+if(WIN32 AND DSOAL_BUILD_A3D)
+    add_subdirectory(a3d)
+endif()

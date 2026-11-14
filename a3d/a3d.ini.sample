@@ -1,0 +1,17 @@
+; Settings for a3d.dll / a3dapi.dll. Put next to the game's .exe as a3d.ini.
+[a3d]
+; Speaker mode: headphones (default), speakers (satellites/monitors) or quad.
+; The game's command line (-a3dmode ...) overrides this.
+mode=headphones
+; Write a3d.log next to the .exe.
+log=0
+; Reflection taps per source and in total (the hardware had a fixed budget).
+reflections-per-source=4
+reflection-voices=48
+; Keep sound going for programs that never call IA3d4::Flush.
+auto-flush=1
+; Treble loss with distance, as the Vortex 2 driver programs it: brightness
+; falls as exp(-0.037 x metres beyond the minimum distance).
+hf-absorb-per-meter=0.037
+; Which DirectSound to load (normally DSOAL's dsound.dll next to the .exe).
+dsound=dsound.dll

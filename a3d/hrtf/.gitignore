@@ -1,0 +1,4 @@
+# HRTF data is built locally from the driver's own .hrtf file and is not redistributed.
+*.mhr
+*.csv
+*.hrtf

@@ -117,6 +117,7 @@ void loadSettings()
     }
     /* Not logf: that calls settings(), which is still running here. */
     if(gLogFile)
+        std::fprintf(gLogFile, "[%lu] a3d: A3D on DSOAL, version " A3D_DSOAL_VERSION "\n", GetTickCount());
         std::fprintf(gLogFile, "[%lu] a3d: speaker mode %s%s\n", GetTickCount(), gSettings.mode,
             gModeLate ? " (dsound.dll was already loaded; if the program opened DirectSound"
                 " first, OpenAL Soft keeps alsoft.ini's mode)" : "");

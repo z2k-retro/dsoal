@@ -2,6 +2,8 @@
  * DirectSound implementation, and small math types. */
 #pragma once
 
+#define A3D_DSOAL_VERSION "0.1"
+
 #include <windows.h>
 #include <mmsystem.h>
 #include <mmreg.h>

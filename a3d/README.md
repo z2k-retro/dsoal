@@ -11,6 +11,14 @@ modern PC, on top of DSOAL and OpenAL Soft:
 Both load `dsound.dll` the normal way, so a DSOAL `dsound.dll` next to the
 game is the one they use.
 
+**Status: version 0.1, a first test release.** It has been built and run
+against this directory's own test programs. Testing in games is only
+starting, so expect problems, and please report what you find (with
+`a3d.log`; see below). The direction filters are the Vortex 2's own, read
+out of a real card as part of a reverse-engineering project,
+[aureal-vortex2-tools](https://github.com/z2k-retro/aureal-vortex2-tools),
+which also documents how the card and its driver treat each A3D setting.
+
 ## Install
 
 Put these next to the game's `.exe`:
@@ -19,6 +27,11 @@ Put these next to the game's `.exe`:
 - `a3d.dll`, `a3dapi.dll`
 - `Aureal Vortex 2.mhr` (from `hrtf/`)
 - optionally `alsoft.ini` (copy of `alsoft.ini.sample`) and `a3d.ini` (copy of `a3d.ini.sample`)
+
+The release zip has all of these, built for 32-bit Windows (A3D games are
+32-bit). To see what the DLLs are doing, set `log=1` under `[a3d]` in
+`a3d.ini`; they then write `a3d.log` next to the game, starting with the
+version and the speaker mode.
 
 ## Speaker mode
 

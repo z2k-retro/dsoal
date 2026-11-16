@@ -6,14 +6,15 @@ modern PC, on top of DSOAL and OpenAL Soft:
 | DLL          | API      | How games reach it |
 |--------------|----------|--------------------|
 | `a3d.dll`    | A3D 1.x  | `CoCreateInstance(CLSID_A3d)` or the `A3dCreate` export. It is a DirectSound object that also answers to `IA3d` / `IA3d2`. 3D sound goes through ordinary DirectSound 3D buffers. |
-| `a3dapi.dll` | A3D 2.0  | `CoCreateInstance(CLSID_A3dApi)`. Implements `IA3d4` (and `IA3d3`/`IA3d2`/`IA3d`), `IA3dGeom`, `IA3dListener`, `IA3dSource`, `IA3dMaterial` and `IA3dList`. |
+| `a3dapi.dll` | A3D 2.0 and 3.0 | `CoCreateInstance(CLSID_A3dApi)`. Implements `IA3d5` (and `IA3d4`/`IA3d3`/`IA3d2`/`IA3d`), `IA3dGeom2` (and `IA3dGeom`), `IA3dListener`, `IA3dSource2` (and `IA3dSource`), `IA3dReverb`, `IA3dReflection`, `IA3dMaterial` and `IA3dList`. |
 
 Both load `dsound.dll` the normal way, so a DSOAL `dsound.dll` next to the
 game is the one they use.
 
-**Status: version 0.1, a first test release.** It has been built and run
-against this directory's own test programs. Testing in games is only
-starting, so expect problems, and please report what you find (with
+**Status: version 0.2, a test release.** It has been built and run
+against this directory's own test programs, and A3D 2.0 has been tried in
+Half-Life. A3D 3.0 (new in 0.2) has only been run against the test programs
+here, so expect problems, and please report what you find (with
 `a3d.log`; see below). The direction filters are the Vortex 2's own, read
 out of a real card as part of a reverse-engineering project,
 [aureal-vortex2-tools](https://github.com/z2k-retro/aureal-vortex2-tools),
@@ -75,6 +76,41 @@ game exits without doing that, it is put back at the next start. A game
 that opens DirectSound before A3D keeps OpenAL Soft's earlier settings, and
 is then simply quieter overall; set `cd-volume-db=0` for those.
 
+## A3D 3.0
+
+A3D 3.0 (Aureal's `a3dapi.dll` 3.x, used by games such as Messiah) adds a
+reverb, volumetric sources, reflections placed by the program, and loading
+WAV, MP3 and AC-3 files. On the Vortex 2 these were mostly done in Aureal's
+library rather than on the card; here:
+
+- **Reverb** (`IA3dReverb`, `IA3d5::BindReverb`) runs on OpenAL Soft's EAX
+  reverb. An A3D preset is one of the 26 EAX 1.0 environments (Aureal's
+  documentation says the presets map directly onto them) with a volume,
+  decay time and damping, and is sent as EAX 1.0 listener properties. A
+  custom reverb is the I3DL2 listener property list, sent as EAX 2.0
+  listener properties, which have the same fields except density and the HF
+  reference (those two are ignored). Every 3D source feeds the reverb at its
+  reverb mix (`SetReverbMix`, 1.0 unless set, as in Aureal's library), sent
+  as the source's EAX room level. The mix's HiFreq value darkens the
+  source's direct sound through the curve Aureal's library uses. Reverb is
+  available whenever the program asks for it in `InitEx`; on the card it
+  also needed the driver's reverb switched on in the registry.
+- **Volumetric sources** (`SetVolumetricBounds`): the box is centred on the
+  source and turned with it. It is heard from its point nearest the
+  listener, and from all round, with no direction, when the listener is
+  inside it. Partial occlusion of a box (`SetVolumetricDamping`) is not
+  modelled: the box is occluded along the line to its nearest point.
+- **Manual reflections** (`NewManualReflection`): each is a delayed copy of
+  its source played from the position given, at the delay given, with the
+  distance law and its gain and EQ. They use the same reflection voices as
+  geometry reflections, and are on whether or not geometry reflections are.
+- **Files** (`LoadFile`): WAV, and MP3 decoded with Windows' own MP3 codec.
+  Streamed sources are decoded whole when loaded, so playback is the same
+  but memory use is not. AC-3 is not supported: on the Vortex 2 it needed a
+  Dolby-licensed software decoder that was never public.
+- Not implemented: geometric reverb (`A3D_GEOMETRIC_REVERB`, reverb worked
+  out from the geometry); its parameters are kept but have no effect.
+
 ## How A3D 2.0 is rendered
 
 The model follows what the Vortex 2 driver does with the chip, expressed
@@ -97,7 +133,7 @@ through DirectSound:
   out of traces of the driver: `SetEq(0.5)` is about −14 dB at 5 kHz, and
   64 m is about −29 dB. It is sent as the EAX 2 `DirectHF` property, which
   DSOAL passes to OpenAL Soft's low-pass. Each buffer's EAX room send is
-  switched off, since A3D 2.0 has no reverb.
+  switched off unless an A3D 3.0 reverb is bound.
 - **Occlusion**: the listener-to-source line is tested against the polygons
   of the last flushed frame. Each wall crossed scales the level by its
   material's low-frequency transmittance and the brightness by its
@@ -123,8 +159,7 @@ goes to DirectSound.
 
 ## Not modelled
 
-- `IA3dEnvironment`, `SelectPreset` and the A3D 3.0 interfaces (`IA3d5`,
-  reverb).
+- `IA3dEnvironment`, `SelectPreset`, A3D 3.0's geometric reverb and AC-3.
 - Resource management and priorities: every source plays.
 - Polygon bloat, update intervals and 2D line walls.
 - OpenAL Soft's low-pass is matched to the card's two-pole filter at 5 kHz
@@ -132,8 +167,19 @@ goes to DirectSound.
 
 ## Tests
 
-`tests/` has two programs used during development, run under Wine with
-OpenAL Soft's wave-file writer:
+`tests/` has programs used during development, run under Wine with
+OpenAL Soft's wave-file writer. Wine must be told to load DSOAL's
+`dsound.dll` rather than its own (`WINEDLLOVERRIDES=dsound=n`), and DSOAL
+asks OpenAL Soft for the Windows audio endpoint by name, which the wave
+writer does not answer to; the tests were run with an OpenAL Soft build whose
+wave writer accepts any name.
+
+- `a3d3_test.cpp` plays a noise burst once a second through each A3D 3.0
+  feature in turn: no reverb, a preset, a zero reverb mix, a custom reverb, a
+  volumetric box around the listener, the same source as a point, and a
+  manual reflection 0.4 s late. `a3d3_analyze.py` reports each phase's
+  reverb tail, balance and echo. Given an MP3 file it also loads it with
+  `LoadFile` and prints its format.
 
 - `a3d2_scene_test.cpp` drives a scene: a source circling the listener, a
   wall that occludes it, a door that opens, and a click with a reflecting wall

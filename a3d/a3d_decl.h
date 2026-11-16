@@ -1,4 +1,4 @@
-/* Interface declarations for the Aureal A3D 1.x and 2.0 COM APIs.
+/* Interface declarations for the Aureal A3D 1.x, 2.0 and 3.0 COM APIs.
  *
  * Written for interoperability from the documented method order and the
  * binary layout that existing applications expect. Only what the emulation
@@ -25,6 +25,12 @@ inline constexpr GUID IID_IA3dListener_{0xc398e563,0xd90b,0x11d1,{0x90,0xfb,0x00
 inline constexpr GUID IID_IA3dList_{0xc398e564,0xd90b,0x11d1,{0x90,0xfb,0x00,0x60,0x08,0xa1,0xf4,0x41}};
 inline constexpr GUID IID_IA3dMaterial_{0xc398e565,0xd90b,0x11d1,{0x90,0xfb,0x00,0x60,0x08,0xa1,0xf4,0x41}};
 inline constexpr GUID IID_IA3d4_   {0xe4c40280,0xccba,0x11d2,{0x9d,0xcf,0x00,0x50,0x04,0x11,0x58,0x2f}};
+/* A3D 3.0 */
+inline constexpr GUID IID_IA3d5_   {0x9ae07221,0x8ac4,0x11d3,{0xb6,0xaa,0x00,0x60,0x08,0x79,0xf3,0xee}};
+inline constexpr GUID IID_IA3dGeom2_{0x4730c6c2,0xb797,0x11d3,{0xa3,0x3d,0x00,0x10,0x4b,0x67,0xd1,0x0e}};
+inline constexpr GUID IID_IA3dSource2_{0x3d54c5c1,0x2a5c,0x11d3,{0xa8,0x7f,0x00,0x60,0x08,0x79,0xf3,0xee}};
+inline constexpr GUID IID_IA3dReverb_{0xc38d8c01,0x44d6,0x11d3,{0xa8,0x7f,0x00,0x60,0x08,0x79,0xf3,0xee}};
+inline constexpr GUID IID_IA3dReflection_{0x1996d3c3,0x6c43,0x11d3,{0xa3,0x3d,0x00,0x50,0x04,0x88,0x18,0x1d}};
 
 /* Feature bits (Init, Enable, IsFeatureAvailable). */
 enum : DWORD {
@@ -33,6 +39,25 @@ enum : DWORD {
     A3DF_DIRECT_PATH_GENERIC = 0x20,
     A3DF_OCCLUSIONS = 0x40,
     A3DF_DISABLE_SPLASHSCREEN = 0x80,
+    /* A3D 3.0 */
+    A3DF_REVERB = 0x100,
+    A3DF_GEOMETRIC_REVERB = 0x200,
+    A3DF_DISABLE_FOCUS_MUTE = 0x400,
+};
+
+/* A3D 3.0: IA3dSource2::LoadFile formats, reverb types, streaming. */
+enum : DWORD {
+    A3DFMT_AUTO = 0,
+    A3DFMT_WAVE = 1,
+    A3DFMT_MP3 = 2,
+    A3DFMT_AC3 = 4,
+    A3DFMT_STREAMING = 0x10000,
+
+    A3DREVERBTYPE_PRESET = 1,
+    A3DREVERBTYPE_CUSTOM = 2,
+    A3DREVERB_PRESETS = 26,      /* the EAX 1.0 environments, in order */
+
+    A3DSTREAM_PRIORITY_HIGHEST = 2,
 };
 
 /* Geometry primitive types for Begin. */
@@ -103,7 +128,53 @@ enum : HRESULT {
     A3DERR_END_BEFORE_BEGIN = A3DERR(28),
     A3DERR_BEGIN_MODE = A3DERR(29),
     A3DERR_INVALID_ARG = A3DERR(30),
+    /* A3D 3.0 */
+    A3DERR_FEATURE_NOT_REQUESTED = A3DERR(61),
+    A3DERR_SOURCE_IN_NATIVE_MODE = A3DERR(65),
+    A3DERR_STREAMING_BUFFER_LENGTH = A3DERR(81),
+    A3DERR_STREAMING_PRIORITY = A3DERR(82),
 };
+
+/* A3D 3.0 structures. */
+struct A3DReverbPreset { DWORD dwSize, dwEnvPreset; A3DVAL fVolume, fDecayTime, fDamping; };
+/* The I3DL2 listener property list, with I3DL2's ranges. */
+struct A3DReverbCustom {
+    DWORD dwSize;
+    LONG lRoom, lRoomHF;
+    FLOAT flRoomRolloffFactor, flDecayTime, flDecayHFRatio;
+    LONG lReflections;
+    FLOAT flReflectionsDelay;
+    LONG lReverb;
+    FLOAT flReverbDelay, flDiffusion, flDensity, flHFReference;
+};
+struct A3DReverbProperties {
+    DWORD dwSize, dwType;
+    union { A3DReverbPreset preset; A3DReverbCustom custom; } uval;
+};
+struct A3DVolSrcDampInfo {
+    DWORD dwSize;
+    A3DVAL fAzimuthPan, fSizeDampMin, fDampWeighting;
+    int nTestPointsMax;
+    BOOL bMonoInside;
+};
+struct A3DGeomReverbParam { DWORD dwSize; float fGeomScaling, fEffectScaling; DWORD nVerticalAxis; };
+struct A3DSourceWaveFormat {
+    DWORD dwSize;
+    WORD nChannels;
+    DWORD nSamplesPerSec, nAvgBytesPerSec;
+    WORD nBlockAlign, wBitsPerSample;
+};
+struct A3DSourceMp3Info {
+    DWORD dwSize;
+    INT nMpegLayer, nMpegVersion, nBitrate, nChannels, nSamplerate, nBitsPerSample;
+    FLOAT fTotalPlayLength;
+};
+struct A3DCapsSource {
+    DWORD dwSize, dwType;
+    char *szFilename;
+    union { A3DSourceWaveFormat waveFormat; A3DSourceMp3Info mp3Info; struct { DWORD dwSize; BOOL bPlayingInHardware; } ac3Info; } data;
+};
+using A3DEnumCallback = BOOL (CALLBACK*)(GUID*, LPCWSTR, LPCWSTR, void*);
 
 struct A3DCaps1Software { DWORD dwSize, dwVersion, dwFlags, dwReserved, dwReserved2; };
 struct A3DCaps1Hardware { DWORD dwSize, dwFlags, dwReserved, dwReserved2; };
@@ -119,6 +190,8 @@ struct A3DCaps2Hardware {
 struct IA3dSourceX;
 struct IA3dMaterialX;
 struct IA3dListX;
+struct IA3dReverbX;
+struct IA3dReflectionX;
 
 #define A3DM(name) virtual HRESULT STDMETHODCALLTYPE name
 
@@ -168,6 +241,19 @@ struct IA3d4X : IUnknown {
     A3DM(GetEq)(A3DVAL *eq) = 0;
     A3DM(Shutdown)() = 0;
     A3DM(RegisterApp)(REFIID app) = 0;
+};
+
+/* A3D 3.0: IA3d5 is IA3d4 with these methods appended. */
+struct IA3d5X : IA3d4X {
+    A3DM(InitEx)(GUID *device, DWORD features, DWORD prefs, HWND hwnd, DWORD coop) = 0;
+    A3DM(NewReverb)(IA3dReverbX **out) = 0;
+    A3DM(BindReverb)(IA3dReverbX *reverb) = 0;
+    A3DM(GetStreamingProperties)(DWORD *bufferMs, DWORD *priority) = 0;
+    A3DM(SetStreamingProperties)(DWORD bufferMs, DWORD priority) = 0;
+    A3DM(A3dEnumerate)(A3DEnumCallback cb, void *ctx) = 0;
+    A3DM(UnlockFallbackAC3Decoder)(char *key, DWORD len) = 0;
+    A3DM(SetMaxHardwareSources)(DWORD n) = 0;
+    A3DM(GetMaxHardwareSources)(DWORD *n) = 0;
 };
 
 /* IA3d / IA3d2 alone (used by the A3D 1.x DirectSound object). */
@@ -232,6 +318,12 @@ struct IA3dGeomX : IUnknown {
     A3DM(GetReflectionUpdateInterval)(DWORD *n) = 0;
     A3DM(SetOcclusionUpdateInterval)(DWORD n) = 0;
     A3DM(GetOcclusionUpdateInterval)(DWORD *n) = 0;
+};
+
+/* A3D 3.0: IA3dGeom2 is IA3dGeom with geometric-reverb parameters appended. */
+struct IA3dGeom2X : IA3dGeomX {
+    A3DM(SetGeomReverbParam)(A3DGeomReverbParam *p) = 0;
+    A3DM(GetGeomReverbParam)(A3DGeomReverbParam *p) = 0;
 };
 
 struct IA3dListenerX : IUnknown {
@@ -318,6 +410,50 @@ struct IA3dSourceX : IUnknown {
     A3DM(GetReflectionDelayScale)(A3DVAL *s) = 0;
     A3DM(SetReflectionGainScale)(A3DVAL s) = 0;
     A3DM(GetReflectionGainScale)(A3DVAL *s) = 0;
+};
+
+/* A3D 3.0: IA3dSource2 is IA3dSource with these methods appended (several
+ * earlier ones were renamed, e.g. LoadWaveData stays in its slot). */
+struct IA3dSource2X : IA3dSourceX {
+    A3DM(SetVolumetricBounds)(A3DVAL dx, A3DVAL dy, A3DVAL dz) = 0;
+    A3DM(GetVolumetricBounds)(A3DVAL *dx, A3DVAL *dy, A3DVAL *dz) = 0;
+    A3DM(SetVolumetricDamping)(A3DVolSrcDampInfo *info) = 0;
+    A3DM(GetVolumetricDamping)(A3DVolSrcDampInfo *info) = 0;
+    A3DM(SetReverbMix)(A3DVAL level, A3DVAL hiFreq) = 0;
+    A3DM(GetReverbMix)(A3DVAL *level, A3DVAL *hiFreq) = 0;
+    A3DM(NewManualReflection)(IA3dReflectionX **out) = 0;
+    A3DM(FreeManualReflections)() = 0;
+    A3DM(GetNumManualReflections)(int *n) = 0;
+    A3DM(LoadFile)(char *path, DWORD format) = 0;
+    A3DM(GetCaps)(A3DCapsSource *caps) = 0;
+};
+
+struct IA3dReverbX : IUnknown {
+    A3DM(SetReverbPreset)(DWORD preset) = 0;
+    A3DM(GetReverbPreset)(DWORD *preset) = 0;
+    A3DM(SetAllProperties)(A3DReverbProperties *p) = 0;
+    A3DM(GetAllProperties)(A3DReverbProperties *p) = 0;
+    A3DM(SetPresetVolume)(A3DVAL v) = 0;
+    A3DM(GetPresetVolume)(A3DVAL *v) = 0;
+    A3DM(SetPresetDecayTime)(A3DVAL t) = 0;
+    A3DM(GetPresetDecayTime)(A3DVAL *t) = 0;
+    A3DM(SetPresetDamping)(A3DVAL d) = 0;
+    A3DM(GetPresetDamping)(A3DVAL *d) = 0;
+};
+
+struct IA3dReflectionX : IUnknown {
+    A3DM(SetGainScale)(A3DVAL g) = 0;
+    A3DM(GetGainScale)(A3DVAL *g) = 0;
+    A3DM(SetDelay)(A3DVAL seconds) = 0;
+    A3DM(GetDelay)(A3DVAL *seconds) = 0;
+    A3DM(SetPosition3f)(A3DVAL x, A3DVAL y, A3DVAL z) = 0;
+    A3DM(GetPosition3f)(A3DVAL *x, A3DVAL *y, A3DVAL *z) = 0;
+    A3DM(SetPosition3fv)(A3DVAL *v) = 0;
+    A3DM(GetPosition3fv)(A3DVAL *v) = 0;
+    A3DM(SetTransformMode)(DWORD mode) = 0;
+    A3DM(GetTransformMode)(DWORD *mode) = 0;
+    A3DM(SetEQ)(A3DVAL eq) = 0;
+    A3DM(GetEQ)(A3DVAL *eq) = 0;
 };
 
 struct IA3dListX : IUnknown {

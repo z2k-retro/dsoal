@@ -19,6 +19,7 @@
 #include "common.h"
 
 #include <atomic>
+#include <string>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -113,7 +114,74 @@ struct ReflVoice {
     void release();
 };
 
-class Source final : public IA3dSourceX {
+class Source;
+class Reverb;
+
+/* A3D 3.0 manual reflection: a delayed copy of its source played from a
+ * position the application chooses. The source keeps a list of its live
+ * reflections; the application holds the only reference. */
+class Reflection final : public IA3dReflectionX {
+    std::atomic<LONG> mRef{1};
+public:
+    Engine *engine;
+    Source *owner;          /* null once the source has freed it */
+    DWORD id;
+    float gainScale{1.0f}, delay{0.0f}, eq{1.0f};
+    V3 pos;
+    DWORD xform{A3DXFORM_NORMAL};
+
+    Reflection(Engine *e, Source *s, DWORD i);
+    ~Reflection();
+    void detach();
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override;
+    ULONG STDMETHODCALLTYPE AddRef() override { return ULONG(++mRef); }
+    ULONG STDMETHODCALLTYPE Release() override;
+    HRESULT STDMETHODCALLTYPE SetGainScale(A3DVAL g) override;
+    HRESULT STDMETHODCALLTYPE GetGainScale(A3DVAL *g) override;
+    HRESULT STDMETHODCALLTYPE SetDelay(A3DVAL t) override;
+    HRESULT STDMETHODCALLTYPE GetDelay(A3DVAL *t) override;
+    HRESULT STDMETHODCALLTYPE SetPosition3f(A3DVAL x, A3DVAL y, A3DVAL z) override;
+    HRESULT STDMETHODCALLTYPE GetPosition3f(A3DVAL *x, A3DVAL *y, A3DVAL *z) override;
+    HRESULT STDMETHODCALLTYPE SetPosition3fv(A3DVAL *v) override;
+    HRESULT STDMETHODCALLTYPE GetPosition3fv(A3DVAL *v) override;
+    HRESULT STDMETHODCALLTYPE SetTransformMode(DWORD m) override;
+    HRESULT STDMETHODCALLTYPE GetTransformMode(DWORD *m) override;
+    HRESULT STDMETHODCALLTYPE SetEQ(A3DVAL e) override;
+    HRESULT STDMETHODCALLTYPE GetEQ(A3DVAL *e) override;
+};
+
+/* A3D 3.0 reverb ("A3Dverb"): either one of the 26 EAX 1.0 environments
+ * with a volume, decay time and damping, or a custom I3DL2 property set.
+ * Bound to the world with IA3d5::BindReverb; takes effect at Flush. */
+class Reverb final : public IA3dReverbX {
+    std::atomic<LONG> mRef{1};
+public:
+    DWORD type{A3DREVERBTYPE_PRESET};
+    DWORD env{0};
+    float volume, decayTime, damping;
+    A3DReverbCustom custom{};
+    std::atomic<unsigned> gen{1};   /* bumped on every change */
+
+    Reverb();
+    void loadPreset(DWORD e);
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override;
+    ULONG STDMETHODCALLTYPE AddRef() override { return ULONG(++mRef); }
+    ULONG STDMETHODCALLTYPE Release() override;
+    HRESULT STDMETHODCALLTYPE SetReverbPreset(DWORD p) override;
+    HRESULT STDMETHODCALLTYPE GetReverbPreset(DWORD *p) override;
+    HRESULT STDMETHODCALLTYPE SetAllProperties(A3DReverbProperties *p) override;
+    HRESULT STDMETHODCALLTYPE GetAllProperties(A3DReverbProperties *p) override;
+    HRESULT STDMETHODCALLTYPE SetPresetVolume(A3DVAL v) override;
+    HRESULT STDMETHODCALLTYPE GetPresetVolume(A3DVAL *v) override;
+    HRESULT STDMETHODCALLTYPE SetPresetDecayTime(A3DVAL t) override;
+    HRESULT STDMETHODCALLTYPE GetPresetDecayTime(A3DVAL *t) override;
+    HRESULT STDMETHODCALLTYPE SetPresetDamping(A3DVAL d) override;
+    HRESULT STDMETHODCALLTYPE GetPresetDamping(A3DVAL *d) override;
+};
+
+class Source final : public IA3dSource2X {
     std::atomic<LONG> mRef{1};
 public:
     Engine *engine;
@@ -154,6 +222,16 @@ public:
     std::vector<DSBPOSITIONNOTIFY> events;
     bool eventsDirty{false};
 
+    /* A3D 3.0. */
+    float volBounds[3]{};           /* full box size, app units; all 0 = point */
+    A3DVolSrcDampInfo volDamp{sizeof(A3DVolSrcDampInfo), 0.0f, 0.0f, 0.5f, 4, FALSE};
+    float revLevel{1.0f}, revHiFreq{0.0f}, revBright{1.0f};
+    LONG sentRoom{-1};              /* EAX room level last sent; -1 = none yet */
+    std::vector<Reflection*> manual;
+    std::string filePath;
+    DWORD fileType{A3DFMT_WAVE};
+    A3DSourceMp3Info mp3Info{};
+
     /* Deferred commands. */
     bool pendingPlay{false}, pendingStop{false};
     bool loop{false};
@@ -178,6 +256,9 @@ public:
     HRESULT rebuildBuffer();
     void stopReflections();
     void setDirectHF(IKsPropertySet *p, float hfGain);
+    void setRoom(LONG mB);
+    bool volumetric() const { return volBounds[0] > 0.0f || volBounds[1] > 0.0f || volBounds[2] > 0.0f; }
+    void freeManual();
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override;
     ULONG STDMETHODCALLTYPE AddRef() override { return ++mRef; }
@@ -247,9 +328,22 @@ public:
     HRESULT STDMETHODCALLTYPE GetReflectionDelayScale(A3DVAL *s) override;
     HRESULT STDMETHODCALLTYPE SetReflectionGainScale(A3DVAL s) override;
     HRESULT STDMETHODCALLTYPE GetReflectionGainScale(A3DVAL *s) override;
+
+    /* IA3dSource2 */
+    HRESULT STDMETHODCALLTYPE SetVolumetricBounds(A3DVAL dx, A3DVAL dy, A3DVAL dz) override;
+    HRESULT STDMETHODCALLTYPE GetVolumetricBounds(A3DVAL *dx, A3DVAL *dy, A3DVAL *dz) override;
+    HRESULT STDMETHODCALLTYPE SetVolumetricDamping(A3DVolSrcDampInfo *i) override;
+    HRESULT STDMETHODCALLTYPE GetVolumetricDamping(A3DVolSrcDampInfo *i) override;
+    HRESULT STDMETHODCALLTYPE SetReverbMix(A3DVAL level, A3DVAL hiFreq) override;
+    HRESULT STDMETHODCALLTYPE GetReverbMix(A3DVAL *level, A3DVAL *hiFreq) override;
+    HRESULT STDMETHODCALLTYPE NewManualReflection(IA3dReflectionX **out) override;
+    HRESULT STDMETHODCALLTYPE FreeManualReflections() override;
+    HRESULT STDMETHODCALLTYPE GetNumManualReflections(int *n) override;
+    HRESULT STDMETHODCALLTYPE LoadFile(char *path, DWORD format) override;
+    HRESULT STDMETHODCALLTYPE GetCaps(A3DCapsSource *caps) override;
 };
 
-class Engine final : public IA3d4X, public IA3dGeomX, public IA3dListenerX {
+class Engine final : public IA3d5X, public IA3dGeom2X, public IA3dListenerX {
     std::atomic<LONG> mRef{1};
 public:
     std::recursive_mutex lock;
@@ -297,6 +391,19 @@ public:
 
     std::vector<Source*> sources;
     int reflVoicesInUse{0};
+
+    /* A3D 3.0. */
+    DWORD requested{0};
+    Reverb *reverb{nullptr};               /* bound reverb, referenced */
+    Reverb *appliedReverb{nullptr};        /* identity only, not referenced */
+    unsigned appliedGen{0};
+    bool reverbWasOn{false};
+    IDirectSoundBuffer *fxBuf{nullptr};    /* a silent buffer for listener EAX */
+    IKsPropertySet *fxPs{nullptr};
+    DWORD streamMs{900}, streamPrio{0}, maxHwSources{0};
+    A3DGeomReverbParam geomReverb{sizeof(A3DGeomReverbParam), 1.0f, 1.0f, 1};
+    DWORD nextReflId{1};
+    bool loggedCustomExtras{false};
     DWORD lastFlushTick{0};
     std::thread worker;
     std::atomic<bool> quit{false};
@@ -310,8 +417,9 @@ public:
     void flushFrame(bool fromApp);
     void processSource(Source *s);
     void updateReflections(Source *s, const V3 &S, float directDist, float baseGain,
-        float baseHF, DWORD freq, bool starting);
-    bool createReflVoice(Source *s, ReflVoice &nv);
+        float baseHF, DWORD freq, bool starting, bool geometric);
+    bool createReflVoice(Source *s, ReflVoice &nv, float delay);
+    void applyReverb();
     void workerLoop();
     void shutdown();
 
@@ -361,6 +469,17 @@ public:
     HRESULT STDMETHODCALLTYPE Shutdown() override;
     HRESULT STDMETHODCALLTYPE RegisterApp(REFIID) override { return S_OK; }
 
+    /* IA3d5 */
+    HRESULT STDMETHODCALLTYPE InitEx(GUID *dev, DWORD features, DWORD prefs, HWND hwnd, DWORD coop) override;
+    HRESULT STDMETHODCALLTYPE NewReverb(IA3dReverbX **out) override;
+    HRESULT STDMETHODCALLTYPE BindReverb(IA3dReverbX *r) override;
+    HRESULT STDMETHODCALLTYPE GetStreamingProperties(DWORD *ms, DWORD *prio) override;
+    HRESULT STDMETHODCALLTYPE SetStreamingProperties(DWORD ms, DWORD prio) override;
+    HRESULT STDMETHODCALLTYPE A3dEnumerate(A3DEnumCallback cb, void *ctx) override;
+    HRESULT STDMETHODCALLTYPE UnlockFallbackAC3Decoder(char *, DWORD) override;
+    HRESULT STDMETHODCALLTYPE SetMaxHardwareSources(DWORD n) override;
+    HRESULT STDMETHODCALLTYPE GetMaxHardwareSources(DWORD *n) override;
+
     /* IA3dGeom */
     HRESULT STDMETHODCALLTYPE Enable(DWORD f) override;
     HRESULT STDMETHODCALLTYPE Disable(DWORD f) override;
@@ -409,6 +528,9 @@ public:
     HRESULT STDMETHODCALLTYPE GetReflectionUpdateInterval(DWORD *n) override;
     HRESULT STDMETHODCALLTYPE SetOcclusionUpdateInterval(DWORD n) override;
     HRESULT STDMETHODCALLTYPE GetOcclusionUpdateInterval(DWORD *n) override;
+    /* IA3dGeom2 */
+    HRESULT STDMETHODCALLTYPE SetGeomReverbParam(A3DGeomReverbParam *p) override;
+    HRESULT STDMETHODCALLTYPE GetGeomReverbParam(A3DGeomReverbParam *p) override;
 
     /* IA3dListener */
     HRESULT STDMETHODCALLTYPE SetPosition3f(A3DVAL x, A3DVAL y, A3DVAL z) override;

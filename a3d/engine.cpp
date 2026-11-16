@@ -1,6 +1,8 @@
 /* IA3d4 / IA3dGeom / IA3dListener and the per-frame renderer. */
 #include "engine.h"
 
+#include <ks.h>
+
 namespace a3d {
 
 std::atomic<LONG> gObjects{0};
@@ -111,6 +113,10 @@ void Engine::shutdown()
         s->stopReflections();
         s->releaseBuffer();
     }
+    safeRelease(reverb);
+    appliedReverb = nullptr;
+    safeRelease(fxPs);
+    safeRelease(fxBuf);
     safeRelease(dsListener);
     safeRelease(primary);
     safeRelease(ds);
@@ -120,17 +126,17 @@ void Engine::shutdown()
 HRESULT STDMETHODCALLTYPE Engine::QueryInterface(REFIID riid, void **out)
 {
     if(!out) return E_POINTER;
-    if(riid == IID_IUnknown || riid == IID_IA3d4_ || riid == IID_IA3d3_ || riid == IID_IA3d2_
-        || riid == IID_IA3d_)
+    if(riid == IID_IUnknown || riid == IID_IA3d5_ || riid == IID_IA3d4_ || riid == IID_IA3d3_
+        || riid == IID_IA3d2_ || riid == IID_IA3d_)
     {
         AddRef();
-        *out = static_cast<IA3d4X*>(this);
+        *out = static_cast<IA3d5X*>(this);
         return S_OK;
     }
-    if(riid == IID_IA3dGeom_)
+    if(riid == IID_IA3dGeom_ || riid == IID_IA3dGeom2_)
     {
         AddRef();
-        *out = static_cast<IA3dGeomX*>(this);
+        *out = static_cast<IA3dGeom2X*>(this);
         return S_OK;
     }
     if(riid == IID_IA3dListener_)
@@ -152,7 +158,7 @@ HRESULT STDMETHODCALLTYPE Engine::QueryInterface(REFIID riid, void **out)
     }
     char g[64]{};
     snprintf(g, sizeof(g), "%08lx-%04x-%04x", riid.Data1, riid.Data2, riid.Data3);
-    logf("IA3d4::QueryInterface: unsupported %s", g);
+    logf("IA3d5::QueryInterface: unsupported %s", g);
     *out = nullptr;
     return E_NOINTERFACE;
 }
@@ -278,12 +284,110 @@ HRESULT STDMETHODCALLTYPE Engine::Init(GUID *dev, DWORD features, DWORD prefs)
         logf("no 3D listener; positional sound will not work");
 
     available = features & (A3DF_OCCLUSIONS | A3DF_1ST_REFLECTIONS);
+    requested = features;
+
+    /* A3D 3.0 reverb runs on OpenAL Soft's EAX reverb. Listener EAX
+     * properties go through a buffer's property set, so keep a silent one. */
+    {
+        WAVEFORMATEX wf{};
+        wf.wFormatTag = WAVE_FORMAT_PCM;
+        wf.nChannels = 1;
+        wf.nSamplesPerSec = 22050;
+        wf.wBitsPerSample = 16;
+        wf.nBlockAlign = 2;
+        wf.nAvgBytesPerSec = 44100;
+        DSBUFFERDESC bd{};
+        bd.dwSize = sizeof(bd);
+        bd.dwFlags = DSBCAPS_CTRL3D | DSBCAPS_CTRLVOLUME;
+        bd.dwBufferBytes = 4410;
+        bd.lpwfxFormat = &wf;
+        if(SUCCEEDED(ds->CreateSoundBuffer(&bd, &fxBuf, nullptr))
+            && SUCCEEDED(fxBuf->QueryInterface(IID_IKsPropertySet, reinterpret_cast<void**>(&fxPs))))
+        {
+            constexpr GUID eax10listener{0x4a4e6fc1, 0xc341, 0x11d1,
+                {0xb7, 0x3a, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
+            ULONG support{0};
+            if(FAILED(fxPs->QuerySupport(eax10listener, 0, &support)) || !(support & KSPROPERTY_SUPPORT_SET))
+                safeRelease(fxPs);
+        }
+        if(fxPs)
+            available |= features & A3DF_REVERB;
+        else if(features & A3DF_REVERB)
+            logf("reverb requested, but EAX is not available");
+    }
+
     inited = true;
     lastFlushTick = GetTickCount();
     quit = false;
     worker = std::thread{[this]{ workerLoop(); }};
     return S_OK;
 }
+
+/* ----------------------------------------------------------------- IA3d5 */
+
+HRESULT STDMETHODCALLTYPE Engine::InitEx(GUID *dev, DWORD features, DWORD prefs, HWND hwnd, DWORD coop)
+{
+    logf("InitEx(features %#lx, prefs %#lx, coop %lu)", features, prefs, coop);
+    if(HRESULT hr{Init(dev, features, prefs)}; FAILED(hr))
+        return hr;
+    if(hwnd)
+        SetCooperativeLevel(hwnd, coop);
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE Engine::NewReverb(IA3dReverbX **out)
+{
+    if(!out) return E_POINTER;
+    if(!(requested & A3DF_REVERB)) return A3DERR_FEATURE_NOT_REQUESTED;
+    *out = new Reverb{};
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE Engine::BindReverb(IA3dReverbX *r)
+{
+    Guard _{lock};
+    if(!(requested & A3DF_REVERB)) return A3DERR_FEATURE_NOT_REQUESTED;
+    if(r && !(available & A3DF_REVERB)) return E_FAIL;
+    auto *rv = static_cast<Reverb*>(r);
+    if(rv) rv->AddRef();
+    safeRelease(reverb);
+    reverb = rv;
+    logf("BindReverb(%s)", rv ? "reverb" : "none");
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE Engine::GetStreamingProperties(DWORD *ms, DWORD *prio)
+{
+    if(!ms || !prio) return E_POINTER;
+    *ms = streamMs;
+    *prio = streamPrio;
+    return S_OK;
+}
+
+/* Kept for the application to read back; sources are decoded whole when
+ * loaded, so there is no streaming buffer to size. */
+HRESULT STDMETHODCALLTYPE Engine::SetStreamingProperties(DWORD ms, DWORD prio)
+{
+    if(ms > 10000) return A3DERR_STREAMING_BUFFER_LENGTH;
+    if(prio > A3DSTREAM_PRIORITY_HIGHEST) return A3DERR_STREAMING_PRIORITY;
+    streamMs = ms;
+    streamPrio = prio;
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE Engine::A3dEnumerate(A3DEnumCallback cb, void *ctx)
+{
+    if(!cb) return E_POINTER;
+    cb(nullptr, L"A3D on DSOAL", L"a3dapi.dll", ctx);
+    return S_OK;
+}
+
+/* AC-3 is not supported, so there is no decoder to unlock. */
+HRESULT STDMETHODCALLTYPE Engine::UnlockFallbackAC3Decoder(char *, DWORD) { return S_OK; }
+
+HRESULT STDMETHODCALLTYPE Engine::SetMaxHardwareSources(DWORD n) { maxHwSources = n; return S_OK; }
+HRESULT STDMETHODCALLTYPE Engine::GetMaxHardwareSources(DWORD *n)
+{ if(!n) return E_POINTER; *n = maxHwSources; return S_OK; }
 
 HRESULT STDMETHODCALLTYPE Engine::IsFeatureAvailable(DWORD f)
 {
@@ -318,6 +422,10 @@ HRESULT STDMETHODCALLTYPE Engine::DuplicateSource(IA3dSourceX *orig, IA3dSourceX
     s->eq = o->eq; s->priority = o->priority; s->renderMode = o->renderMode;
     s->xform = o->xform; s->pan[0] = o->pan[0]; s->pan[1] = o->pan[1];
     s->reflDelayScale = o->reflDelayScale; s->reflGainScale = o->reflGainScale;
+    std::copy(std::begin(o->volBounds), std::end(o->volBounds), s->volBounds);
+    s->volDamp = o->volDamp;
+    s->revLevel = o->revLevel; s->revHiFreq = o->revHiFreq; s->revBright = o->revBright;
+    s->fileType = o->fileType; s->mp3Info = o->mp3Info;
     s->attachBuffer(b);
     s->appBytes = o->appBytes;
     s->mixdown = o->mixdown;
@@ -620,6 +728,23 @@ HRESULT STDMETHODCALLTYPE Engine::SetOrientationAngles3f(A3DVAL h, A3DVAL p, A3D
     anglesToVectors(h, p, r, leftHanded(), lFront, lUp);
     return S_OK;
 }
+
+/* Geometric reverb (reverb worked out from the A3D 2.0 geometry) is not
+ * implemented; the parameters are kept for the application to read. */
+HRESULT STDMETHODCALLTYPE Engine::SetGeomReverbParam(A3DGeomReverbParam *p)
+{
+    if(!p) return E_POINTER;
+    if(p->dwSize < sizeof(A3DGeomReverbParam) || p->nVerticalAxis > 2) return E_INVALIDARG;
+    geomReverb = *p;
+    return S_OK;
+}
+HRESULT STDMETHODCALLTYPE Engine::GetGeomReverbParam(A3DGeomReverbParam *p)
+{
+    if(!p) return E_POINTER;
+    if(p->dwSize < sizeof(A3DGeomReverbParam)) return E_INVALIDARG;
+    *p = geomReverb;
+    return S_OK;
+}
 HRESULT STDMETHODCALLTYPE Engine::GetOrientationAngles3f(A3DVAL *h, A3DVAL *p, A3DVAL *r)
 {
     if(!h || !p || !r) return E_INVALIDARG;
@@ -683,6 +808,7 @@ void Engine::flushFrame(bool fromApp)
     else   { wR = normalize(cross(wF, u0)); wU = cross(wR, wF); }
     wV = lBound.dir(lVel);
 
+    applyReverb();
     for(Source *s : sources)
         processSource(s);
     if(dsListener)
@@ -732,20 +858,38 @@ void Engine::processSource(Source *s)
         const float sgn{leftHanded() ? -1.0f : 1.0f};
         V3 lp{s->isBound ? s->bound.point(s->pos) : s->pos};
         V3 lf{s->isBound ? s->bound.dir(s->front) : s->front};
+        V3 lu{s->isBound ? s->bound.dir(s->up) : s->up};
         V3 lv{s->isBound ? s->bound.dir(s->vel) : s->vel};
-        V3 Sf, Sv;
+        V3 Sf, Su, Sv;
         if(s->xform == A3DXFORM_HEADRELATIVE)
         {
             auto toWorld = [&](const V3 &v) { return wR*v.x + wU*v.y + wF*(-sgn*v.z); };
             S = wP + toWorld(lp);
             Sf = toWorld(lf);
+            Su = toWorld(lu);
             Sv = wV + toWorld(lv);
         }
         else
         {
             S = lp;
             Sf = lf;
+            Su = lu;
             Sv = lv;
+        }
+
+        /* A3D 3.0 volumetric source: a box centred on the source position,
+         * oriented by the source's orientation. It is heard from its point
+         * nearest the listener, and from all round (no direction) when the
+         * listener is inside it. */
+        if(s->volumetric())
+        {
+            const V3 f{normalize(Sf)};
+            const V3 u{normalize(Su - f*dot(Su, f))};
+            const V3 r{cross(f, u)};
+            const V3 d{wP - S};
+            const float hx{0.5f*s->volBounds[0]}, hy{0.5f*s->volBounds[1]}, hz{0.5f*s->volBounds[2]};
+            S = S + r*std::clamp(dot(d, r), -hx, hx) + u*std::clamp(dot(d, u), -hy, hy)
+                + f*std::clamp(dot(d, f), -hz, hz);
         }
 
         const V3 rel{S - wP};
@@ -821,7 +965,13 @@ void Engine::processSource(Source *s)
     const DWORD freq{DWORD(std::clamp(float(s->fmt.nSamplesPerSec) * freqMul,
         float(DSBFREQUENCY_MIN), float(DSBFREQUENCY_MAX)))};
     s->buf->SetFrequency(freq);
+    /* A3D 3.0 reverb: every 3D source feeds the bound reverb at its own
+     * reverb mix (1.0 unless the application set one), through EAX's
+     * per-source room level; HiFreq darkens the source's direct sound. */
+    const bool wet{reverb && fxPs && !native && !mono && s->is3d};
+    if(wet) hf *= s->revBright;
     s->setDirectHF(s->ps, (native || mono) ? 1.0f : brightnessToHF(hf));
+    s->setRoom(wet ? gainTo_mB(s->revLevel) : -10000);
 
     DWORD status{0};
     s->buf->GetStatus(&status);
@@ -839,15 +989,16 @@ void Engine::processSource(Source *s)
         }
         s->eventsDirty = false;
     }
-    const bool reflOn{s->is3d && !native && !mono && (enabled & A3DF_1ST_REFLECTIONS)
+    const bool geomRefl{s->is3d && !native && !mono && (enabled & A3DF_1ST_REFLECTIONS)
         && (s->renderMode & A3DRM_1ST_REFLECTIONS) && settings().maxReflections > 0};
+    const bool reflOn{geomRefl || (s->is3d && !native && !mono && !s->manual.empty())};
     if(s->pendingPlay)
     {
         /* Set the reflection taps up first so they can be started in the
          * same breath as the source: that is what fixes their lag. */
         s->stopReflections();
         if(reflOn)
-            updateReflections(s, S, dist, baseGain, eqGlobal * s->eq, freq, true);
+            updateReflections(s, S, dist, baseGain, eqGlobal * s->eq, freq, true, geomRefl);
         s->buf->Play(0, 0, s->loop ? DSBPLAY_LOOPING : 0);
         for(auto &v : s->refl)
             if(v.buf && !v.started)
@@ -861,7 +1012,7 @@ void Engine::processSource(Source *s)
     else
     {
         if((status & DSBSTATUS_PLAYING) && reflOn)
-            updateReflections(s, S, dist, baseGain, eqGlobal * s->eq, freq, false);
+            updateReflections(s, S, dist, baseGain, eqGlobal * s->eq, freq, false, geomRefl);
     }
 
     const bool playing{(status & DSBSTATUS_PLAYING) != 0};
@@ -890,7 +1041,7 @@ void Engine::processSource(Source *s)
  * offset. A one-shot gets its own copy with silence in front, so the tap can
  * start together with the source and still lag it without skipping the start
  * of the sound. */
-bool Engine::createReflVoice(Source *s, ReflVoice &nv)
+bool Engine::createReflVoice(Source *s, ReflVoice &nv, float delay)
 {
     if(s->loop)
     {
@@ -905,7 +1056,7 @@ bool Engine::createReflVoice(Source *s, ReflVoice &nv)
     {
         const DWORD align{s->bufFmt().nBlockAlign};
         const float maxPitch{2.0f};
-        nv.padBytes = DWORD(maxReflDelay * float(s->fmt.nSamplesPerSec) * maxPitch) * align;
+        nv.padBytes = DWORD(std::max(maxReflDelay, delay) * float(s->fmt.nSamplesPerSec) * maxPitch) * align;
         nv.size = nv.padBytes + s->bytes;
         DSBUFFERDESC desc{};
         desc.dwSize = sizeof(desc);
@@ -949,7 +1100,7 @@ bool Engine::createReflVoice(Source *s, ReflVoice &nv)
 }
 
 void Engine::updateReflections(Source *s, const V3 &S, float directDist, float baseGain,
-    float baseHF, DWORD freq, bool starting)
+    float baseHF, DWORD freq, bool starting, bool geometric)
 {
     struct Cand { DWORD key; float gain, hf, delay; V3 local; };
     std::vector<Cand> cands;
@@ -957,7 +1108,7 @@ void Engine::updateReflections(Source *s, const V3 &S, float directDist, float b
     const float gscale{reflGainScale * s->reflGainScale};
     const float dscale{reflDelayScale * s->reflDelayScale};
 
-    for(size_t i{0};i < front.size();++i)
+    for(size_t i{0};geometric && i < front.size();++i)
     {
         const Poly &p{front[i]};
         if(p.sub || !(p.mode & A3DPOLY_REFLECTIONS) || p.mat.reflLow <= 0.0f) continue;
@@ -991,6 +1142,28 @@ void Engine::updateReflections(Source *s, const V3 &S, float directDist, float b
         [](const Cand &a, const Cand &b) { return a.gain > b.gain; });
     cands.resize(keep);
 
+    /* A3D 3.0 manual reflections: a position, delay, gain and EQ given by
+     * the application. Their delay is taken as given (Aureal's sample uses
+     * delays well beyond the 0.3 s geometric limit). */
+    for(const Reflection *m : s->manual)
+    {
+        if(m->gainScale <= 0.0f) continue;
+        V3 P{m->pos};
+        if(m->xform == A3DXFORM_HEADRELATIVE)
+        {
+            const float sgn{leftHanded() ? -1.0f : 1.0f};
+            P = wP + wR*P.x + wU*P.y + wF*(-sgn*P.z);
+        }
+        const V3 rel{P - wP};
+        const V3 loc{V3{dot(rel, wR), dot(rel, wU), dot(rel, wF)} * (1.0f/upm)};
+        const float r{length(loc)};
+        const float gain{baseGain * distanceGain(s, r, dmsGlobal) * m->gainScale};
+        if(gain < 0.0001f) continue;
+        cands.push_back({0x40000000u | m->id, gain,
+            brightnessToHF(baseHF * m->eq * distanceBrightness(r, s->minDist, hfAbsorb)),
+            std::min(m->delay, 4.0f), loc});
+    }
+
     for(auto &v : s->refl) v.used = false;
 
     DWORD srcPos{0}, srcWrite{0};
@@ -1007,7 +1180,7 @@ void Engine::updateReflections(Source *s, const V3 &S, float directDist, float b
         {
             if(reflVoicesInUse >= settings().maxReflectionVoices) continue;
             ReflVoice nv;
-            if(!createReflVoice(s, nv)) continue;
+            if(!createReflVoice(s, nv, c.delay)) continue;
             nv.key = c.key;
             ++reflVoicesInUse;
             s->refl.push_back(nv);

@@ -1,4 +1,5 @@
-/* IA3dSource, IA3dMaterial and IA3dList. */
+/* IA3dSource (and A3D 3.0's IA3dSource2 and IA3dReflection), IA3dMaterial
+ * and IA3dList. */
 #include "engine.h"
 
 #include <ks.h>
@@ -86,6 +87,7 @@ Source::~Source()
 {
     {
         Guard _{engine->lock};
+        freeManual();
         stopReflections();
         releaseBuffer();
         auto &v = engine->sources;
@@ -98,10 +100,10 @@ Source::~Source()
 HRESULT STDMETHODCALLTYPE Source::QueryInterface(REFIID riid, void **out)
 {
     if(!out) return E_POINTER;
-    if(riid == IID_IUnknown || riid == IID_IA3dSource_)
+    if(riid == IID_IUnknown || riid == IID_IA3dSource_ || riid == IID_IA3dSource2_)
     {
         AddRef();
-        *out = static_cast<IA3dSourceX*>(this);
+        *out = static_cast<IA3dSource2X*>(this);
         return S_OK;
     }
     *out = nullptr;
@@ -122,8 +124,16 @@ void Source::setDirectHF(IKsPropertySet *p, float hfGain)
     p->Set(EAX20_BufferProps, EAX20BUF_DIRECTHF, nullptr, 0, &mb, sizeof(mb));
 }
 
+void Source::setRoom(LONG mB)
+{
+    if(!ps || !eaxOk || mB == sentRoom) return;
+    ps->Set(EAX20_BufferProps, EAX20BUF_ROOM, nullptr, 0, &mB, sizeof(mB));
+    sentRoom = mB;
+}
+
 void Source::attachBuffer(IDirectSoundBuffer *b)
 {
+    sentRoom = -1;
     buf = b;
     DSBCAPS caps{};
     caps.dwSize = sizeof(caps);
@@ -147,6 +157,7 @@ void Source::attachBuffer(IDirectSoundBuffer *b)
             /* A3D has no reverb send; keep EAX's default room effect off. */
             LONG room{-10000};
             ps->Set(EAX20_BufferProps, EAX20BUF_ROOM, nullptr, 0, &room, sizeof(room));
+            sentRoom = room;
         }
     }
 }

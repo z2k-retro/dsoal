@@ -72,7 +72,7 @@ class A3dDS final : public IDirectSound {
 
 public:
     A3dDS() { mFace.self = this; ++gObjects; }
-    ~A3dDS() { if(mInner) mInner->Release(); --gObjects; }
+    ~A3dDS() { if(mInner) mInner->Release(); --gObjects; a3d::restoreSessionVolume(); }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override
     {

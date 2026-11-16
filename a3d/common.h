@@ -2,7 +2,7 @@
  * DirectSound implementation, and small math types. */
 #pragma once
 
-#define A3D_DSOAL_VERSION "0.1"
+#define A3D_DSOAL_VERSION "0.1.1"
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -28,6 +28,8 @@ struct Settings {
        "headphones" (default), "speakers" (also "satellites"/"monitors"),
        or "quad". From -a3dmode on the command line, else a3d.ini. */
     char mode[16]{"headphones"};
+    /* CD music level against the game's own sound, dB (see common.cpp). */
+    float cdVolumeDb{-12.0f};
 };
 
 const Settings &settings();
@@ -36,6 +38,9 @@ void logf(const char *fmt, ...);
 /* DirectSoundCreate from whichever dsound.dll the settings name (by default
  * the normal search order, so a DSOAL dsound.dll next to the game wins). */
 HRESULT createDirectSound(const GUID *dev, IDirectSound **out);
+
+/* Puts the process's audio session volume back (CD level option). */
+void restoreSessionVolume();
 
 inline LONG gainTo_mB(float g)
 {

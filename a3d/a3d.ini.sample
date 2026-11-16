@@ -13,5 +13,11 @@ auto-flush=1
 ; Treble loss with distance, as the Vortex 2 driver programs it: brightness
 ; falls as exp(-0.037 x metres beyond the minimum distance).
 hf-absorb-per-meter=0.037
+; CD music level in dB against the game's own sound (0 = leave alone, down
+; to -24). On the card the CD was an analogue input mixed well under the
+; game's effects; on current Windows it plays digitally at full level. This
+; turns the program's volume down in the Windows mixer and the game's own
+; sound back up by the same amount, and puts the mixer back on exit.
+cd-volume-db=-12
 ; Which DirectSound to load (normally DSOAL's dsound.dll next to the .exe).
 dsound=dsound.dll

@@ -97,6 +97,7 @@ Engine::~Engine()
 {
     shutdown();
     --gObjects;
+    restoreSessionVolume();
 }
 
 void Engine::shutdown()
@@ -138,7 +139,12 @@ HRESULT STDMETHODCALLTYPE Engine::QueryInterface(REFIID riid, void **out)
         *out = static_cast<IA3dListenerX*>(this);
         return S_OK;
     }
-    if(riid == IID_IDirectSound && ds)
+    /* Undocumented: Aureal's a3dapi.dll answers this with the DirectSound
+       object underneath it. Half-Life and Quake 3 ask for it and make their
+       own buffers on the result, without checking for failure. */
+    static const GUID IID_A3dDirectSound{0x62507921, 0x3ea6, 0x11d2,
+        {0x90, 0xfb, 0x00, 0x60, 0x08, 0xa1, 0xf4, 0x41}};
+    if((riid == IID_IDirectSound || riid == IID_A3dDirectSound) && ds)
     {
         ds->AddRef();
         *out = ds;

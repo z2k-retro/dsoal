@@ -57,6 +57,24 @@ Games that use the A3D 2.0 helper library register `a3d.dll` and
 game's folder. For games that expect the driver to have done it, run
 `regsvr32 a3d.dll` and `regsvr32 a3dapi.dll` once from the game's folder.
 
+## CD music level
+
+On the sound card the CD was an analogue input, mixed well under the game's
+effects. On current Windows, CD music (MCI, or a winmm replacement playing
+music files) is digital and plays at full level in the game's process, so
+beside the effects it is much louder than it was. No program can turn down
+only its own CD stream, so `cd-volume-db` in `a3d.ini` (default -12, 0 to
+turn off) does it in two halves: the program's volume in the Windows mixer
+goes down by that amount, and OpenAL Soft turns the game's own sound up by
+the same amount. Effects end where they were; the music, and anything else
+the program plays outside DirectSound, is quieter.
+
+While the game runs it shows at reduced volume in the Windows volume mixer.
+The volume found at start is put back when the game releases A3D; if the
+game exits without doing that, it is put back at the next start. A game
+that opens DirectSound before A3D keeps OpenAL Soft's earlier settings, and
+is then simply quieter overall; set `cd-volume-db=0` for those.
+
 ## How A3D 2.0 is rendered
 
 The model follows what the Vortex 2 driver does with the chip, expressed

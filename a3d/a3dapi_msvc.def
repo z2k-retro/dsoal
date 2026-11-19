@@ -1,0 +1,6 @@
+LIBRARY a3dapi.dll
+EXPORTS
+    DllGetClassObject=DllGetClassObject PRIVATE
+    DllCanUnloadNow=DllCanUnloadNow PRIVATE
+    DllRegisterServer=DllRegisterServer PRIVATE
+    DllUnregisterServer=DllUnregisterServer PRIVATE

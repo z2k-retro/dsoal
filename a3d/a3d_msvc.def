@@ -1,0 +1,7 @@
+LIBRARY a3d.dll
+EXPORTS
+    DllGetClassObject=DllGetClassObject PRIVATE
+    DllCanUnloadNow=DllCanUnloadNow PRIVATE
+    DllRegisterServer=DllRegisterServer PRIVATE
+    DllUnregisterServer=DllUnregisterServer PRIVATE
+    "?A3dCreate@@YGJPAU_GUID@@PAPAUIDirectSound@@PAUIUnknown@@@Z"=A3dCreateImpl

@@ -11,7 +11,7 @@ on:
 env:
   Configuration: Release
   DSOALRepo: ${{github.repository}}
-  DSOALBranch: master
+  DSOALBranch: ${{github.ref_name}}
   OpenALSoftRepo: kcat/openal-soft
   OpenALSoftBranch: master
   GH_TOKEN: ${{github.token}}
@@ -37,7 +37,7 @@ jobs:
       run: |
         git clone --branch ${{env.DSOALBranch}} https://github.com/${{env.DSOALRepo}}.git .
         git fetch --tags
-        echo "DSOALCommitTag=$(git tag --list "*.*.*" --contains $(git rev-parse HEAD))" >> $env:GITHUB_ENV
+        echo "DSOALCommitTag=${{github.ref_name}}" >> $env:GITHUB_ENV
 
     - name: Clone OpenAL Soft
       run: |
@@ -82,6 +82,12 @@ jobs:
         move "${{github.workspace}}/build/${{env.Configuration}}/dsound.dll"                                   "DSOAL/dsound.dll"
         move "${{github.workspace}}/openal-soft/build/${{env.Configuration}}/soft_oal.dll"                     "DSOAL/dsoal-aldrv.dll"
         copy "${{github.workspace}}/openal-soft/alsoftrc.sample"                                               "DSOAL/alsoft.ini"
+        move "${{github.workspace}}/build/a3d/${{env.Configuration}}/a3d.dll"                                  "DSOAL/a3d.dll"
+        move "${{github.workspace}}/build/a3d/${{env.Configuration}}/a3dapi.dll"                               "DSOAL/a3dapi.dll"
+        copy "${{github.workspace}}/a3d/hrtf/Aureal Vortex 2.mhr"                                              "DSOAL/Aureal Vortex 2.mhr"
+        copy "${{github.workspace}}/a3d/a3d.ini.sample"                                                        "DSOAL/a3d.ini.sample"
+        copy "${{github.workspace}}/a3d/alsoft.ini.sample"                                                     "DSOAL/alsoft-a3d.ini.sample"
+        copy "${{github.workspace}}/a3d/README.md"                                                             "DSOAL/Documentation/A3D-ReadMe.txt"
         copy "${{github.workspace}}/README.md"                                                                 "DSOAL/Documentation/DSOAL-ReadMe.txt"
         copy "${{github.workspace}}/LICENSE"                                                                   "DSOAL/Documentation/DSOAL-License.txt"
         copy "${{github.workspace}}/fmt-11.2.0/LICENSE"                                                        "DSOAL/Documentation/DSOAL-License_fmt.txt"
@@ -93,8 +99,8 @@ jobs:
         echo "${{env.DSOALCommitDate}}" >>                                                                     "DSOAL/Documentation/DSOAL-Version.txt"
         copy "${{github.workspace}}/openal-soft/README.md"                                                     "DSOAL/Documentation/OpenALSoft-ReadMe.txt"
         copy "${{github.workspace}}/openal-soft/COPYING"                                                       "DSOAL/Documentation/OpenALSoft-License.txt"
-        copy "${{github.workspace}}/openal-soft/LICENSE.Apache-2.0.txt"                                        "DSOAL/Documentation/OpenALSoft-License.Apache-2.0.txt"
-        copy "${{github.workspace}}/openal-soft/LICENSE.BSD-3-Clause.txt"                                      "DSOAL/Documentation/OpenALSoft-License.BSD-3-Clause.txt"
+        if (Test-Path "${{github.workspace}}/openal-soft/LICENSE.Apache-2.0.txt") { copy "${{github.workspace}}/openal-soft/LICENSE.Apache-2.0.txt" "DSOAL/Documentation/OpenALSoft-License.Apache-2.0.txt" }
+        if (Test-Path "${{github.workspace}}/openal-soft/LICENSE.BSD-3-Clause.txt") { copy "${{github.workspace}}/openal-soft/LICENSE.BSD-3-Clause.txt" "DSOAL/Documentation/OpenALSoft-License.BSD-3-Clause.txt" }
         copy "${{github.workspace}}/openal-soft/LICENSE-pffft"                                                 "DSOAL/Documentation/OpenALSoft-License_PFFFT.txt"
         copy "${{github.workspace}}/openal-soft/ChangeLog"                                                     "DSOAL/Documentation/OpenALSoft-ChangeLog.txt"
         echo "${{env.OpenALSoftRepo}}" >>                                                                      "DSOAL/Documentation/OpenALSoft-Version.txt"
@@ -128,6 +134,7 @@ jobs:
 
   Release:
     needs: Build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
 
@@ -169,7 +176,7 @@ jobs:
         DSOAL_TITLE: ${{needs.Build.outputs.DSOALCommitTitle}}
         OPENALSOFT_TITLE: ${{needs.Build.outputs.OpenALSoftCommitTitle}}
       run: |
-        gh release create ${{needs.Build.outputs.DSOALCommitTag}} --repo ${{env.DSOALRepo}} --target ${{needs.Build.outputs.DSOALCommitHash}} --generate-notes --latest=true --title "DSOAL v${{needs.Build.outputs.DSOALCommitTag}} + OpenAL Soft v${{needs.Build.outputs.OpenALSoftCommitTag}}" --notes "DSOAL v${{needs.Build.outputs.DSOALCommitTag}}-${{needs.Build.outputs.DSOALCommitHashShort}} ${{needs.Build.outputs.DSOALBranch}} - ${DSOAL_TITLE} [${{needs.Build.outputs.DSOALCommitDate}}]
+        gh release create ${{needs.Build.outputs.DSOALCommitTag}} --repo ${{env.DSOALRepo}} --target ${{needs.Build.outputs.DSOALCommitHash}} --generate-notes --latest=true --title "${{needs.Build.outputs.DSOALCommitTag}} + OpenAL Soft v${{needs.Build.outputs.OpenALSoftCommitTag}}" --notes "DSOAL v${{needs.Build.outputs.DSOALCommitTag}}-${{needs.Build.outputs.DSOALCommitHashShort}} ${{needs.Build.outputs.DSOALBranch}} - ${DSOAL_TITLE} [${{needs.Build.outputs.DSOALCommitDate}}]
         OpenAL Soft v${{needs.Build.outputs.OpenALSoftCommitTag}}-${{needs.Build.outputs.OpenALSoftCommitHashShort}} ${{needs.Build.outputs.OpenALSoftBranch}} - ${OPENALSOFT_TITLE} [${{needs.Build.outputs.OpenALSoftCommitDate}}]
         Build log: https://github.com/${{env.DSOALRepo}}/actions/runs/${{github.run_id}}"
         gh release upload ${{needs.Build.outputs.DSOALCommitTag}} --repo ${{env.DSOALRepo}} --clobber DSOAL.zip DSOAL.7z

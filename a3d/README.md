@@ -27,7 +27,8 @@ Put these next to the game's `.exe`:
 - `dsound.dll` (DSOAL) and `dsoal-aldrv.dll` (OpenAL Soft)
 - `a3d.dll`, `a3dapi.dll`
 - `Aureal Vortex 2.mhr` (from `hrtf/`)
-- optionally `alsoft.ini` (copy of `alsoft.ini.sample`) and `a3d.ini` (copy of `a3d.ini.sample`)
+- optionally `alsoft.ini` (copy of `alsoft.ini.sample`, `alsoft-a3d.ini.sample` in the
+  release zip) and `a3d.ini` (copy of `a3d.ini.sample`)
 
 The release zip has all of these, built for 32-bit Windows (A3D games are
 32-bit). To see what the DLLs are doing, set `log=1` under `[a3d]` in

@@ -101,8 +101,11 @@ library rather than on the card; here:
   inside it. Partial occlusion of a box (`SetVolumetricDamping`) is not
   modelled: the box is occluded along the line to its nearest point.
 - **Manual reflections** (`NewManualReflection`): each is a delayed copy of
-  its source played from the position given, at the delay given, with the
-  distance law and its gain and EQ. They use the same reflection voices as
+  its source played from the position given, with the distance law and its
+  gain scale. As on a real SQ2500 (checked with `refltest`), the delay is held
+  to the maximum reflection delay (0.3 s unless the program sets it), and the
+  echo's treble follows its gain scale, not `SetEQ`: the driver plays it on a
+  voice whose low-pass it closes as the gain scale falls. They use the same reflection voices as
   geometry reflections, and are on whether or not geometry reflections are.
 - **Files** (`LoadFile`): WAV, and MP3 decoded with Windows' own MP3 codec.
   Streamed sources are decoded whole when loaded, so playback is the same
@@ -177,7 +180,7 @@ wave writer accepts any name.
 - `a3d3_test.cpp` plays a noise burst once a second through each A3D 3.0
   feature in turn: no reverb, a preset, a zero reverb mix, a custom reverb, a
   volumetric box around the listener, the same source as a point, and a
-  manual reflection 0.4 s late. `a3d3_analyze.py` reports each phase's
+  manual reflection asked for 0.4 s late (it lands at 0.3 s, as on the card). `a3d3_analyze.py` reports each phase's
   reverb tail, balance and echo. Given an MP3 file it also loads it with
   `LoadFile` and prints its format.
 

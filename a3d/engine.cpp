@@ -83,6 +83,35 @@ float brightnessToHF(float h)
     return (1.0f - p)*(1.0f - p) / (1.0f - 2.0f*p*c + p*p);
 }
 
+/* A manual reflection's treble, as the Vortex 2 driver sets it (refltest on a
+ * real SQ2500, 2026-11-18). The reflection plays on a wavetable voice whose
+ * four-stage low-pass the driver sets from the reflection's gain scale alone:
+ * 1 left it open (cut-off byte 0xcf), 0.3 gave 0xaa, 0.1 0x94 and 0.03 0x88.
+ * The reflection's SetEQ (1 to 0.05), the source's SetEq and distance (20 m,
+ * 80 m) left it open. Between those points the byte is interpolated on the
+ * logarithm of the gain scale; the result is the filter's gain at 5 kHz. */
+float manualReflectionHF(float gainScale)
+{
+    static constexpr float LG[]{-1.523f, -1.0f, -0.523f, 0.0f};
+    static constexpr float B[]{136.0f, 148.0f, 170.0f, 207.0f};
+    const float lg{std::log10(std::clamp(gainScale, 0.001f, 1.0f))};
+    float b{B[0]};
+    if(lg >= LG[3]) b = B[3];
+    else if(lg > LG[0])
+        for(int i{1};i < 4;++i)
+            if(lg <= LG[i]) { b = B[i-1] + (B[i] - B[i-1]) * (lg - LG[i-1]) / (LG[i] - LG[i-1]); break; }
+    if(b >= 207.0f) return 1.0f;
+    /* The byte's coefficient: exponent in the high four bits (0xc = 0.5),
+     * the low four bits as a repeating binary fraction after a leading 1. */
+    const int e{int(b) >> 4};
+    const float m{float(int(b) & 15) / 15.0f};
+    const float F{(1.0f + m) * std::ldexp(1.0f, e - 13) + (b - std::floor(b)) * std::ldexp(1.0f, e - 13) / 15.0f};
+    const float w{2.0f * 3.14159265f * 5000.0f / 48000.0f};
+    const float c{std::cos(w)};
+    const float one{F*F / (1.0f - 2.0f*(1.0f - F)*c + (1.0f - F)*(1.0f - F))};
+    return std::min(1.0f, one * one); /* four stages: |H|^2 squared */
+}
+
 float distanceBrightness(float d, float minDist, float factor)
 {
     return std::exp(-settings().hfAbsorbPerMeter * factor * std::max(0.0f, d - minDist));
@@ -1142,9 +1171,11 @@ void Engine::updateReflections(Source *s, const V3 &S, float directDist, float b
         [](const Cand &a, const Cand &b) { return a.gain > b.gain; });
     cands.resize(keep);
 
-    /* A3D 3.0 manual reflections: a position, delay, gain and EQ given by
-     * the application. Their delay is taken as given (Aureal's sample uses
-     * delays well beyond the 0.3 s geometric limit). */
+    /* A3D 3.0 manual reflections: a position, delay and gain given by the
+     * application. On a real SQ2500 (refltest, 2026-11-18) a delay of 0.4 s
+     * came out 0.300 s after the direct sound, so the delay is held to the
+     * maximum reflection delay (0.3 s unless set), and the treble follows
+     * the gain scale, not SetEQ (see manualReflectionHF). */
     for(const Reflection *m : s->manual)
     {
         if(m->gainScale <= 0.0f) continue;
@@ -1160,8 +1191,8 @@ void Engine::updateReflections(Source *s, const V3 &S, float directDist, float b
         const float gain{baseGain * distanceGain(s, r, dmsGlobal) * m->gainScale};
         if(gain < 0.0001f) continue;
         cands.push_back({0x40000000u | m->id, gain,
-            brightnessToHF(baseHF * m->eq * distanceBrightness(r, s->minDist, hfAbsorb)),
-            std::min(m->delay, 4.0f), loc});
+            manualReflectionHF(m->gainScale),
+            std::min(m->delay, maxReflDelay), loc});
     }
 
     for(auto &v : s->refl) v.used = false;

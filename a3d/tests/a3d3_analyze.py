@@ -4,8 +4,9 @@ its timeline. Usage: a3d3_analyze.py out.wav run3.txt
 
 The test plays a 50 ms noise burst once a second. For each 3 s phase this
 prints, per burst: the level 300-900 ms after the burst relative to the burst
-(the reverb tail), the left/right balance of the burst, and the level 400-450
-ms after it on each side (where the manual echo should land)."""
+(the reverb tail), the left/right balance of the burst, and the level 300-350
+ms after it on each side (where the manual echo should land: the test asks for
+0.4 s, which a real SQ2500 holds to the 0.3 s maximum reflection delay)."""
 import struct
 import sys
 
@@ -56,7 +57,7 @@ def main():
             on = on - ms(30) + int(np.argmax(w > w.max() * 0.2))
             burst = x[on:on + ms(50)]
             tail = x[on + ms(300):on + ms(900)]
-            echo = x[on + ms(400):on + ms(450)]
+            echo = x[on + ms(300):on + ms(350)]
             pb = (burst ** 2).mean(0)
             rows.append((db((tail ** 2).sum(1).mean()) - db(pb.sum()),
                          db(pb[0]) - db(pb[1]),
